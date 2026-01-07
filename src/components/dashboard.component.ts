@@ -1,10 +1,11 @@
-
 import { Component, inject, effect, ElementRef, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CaseService } from '../services/case.service';
+import * as d3 from 'd3';
 
 @Component({
   selector: 'app-dashboard',
+  standalone: true,
   imports: [CommonModule],
   template: `
     <div class="space-y-6">
@@ -53,7 +54,7 @@ import { CaseService } from '../services/case.service';
                   <span>₹{{ h.value | number }}</span>
                 </div>
                 <div class="w-full bg-slate-100 rounded-full h-2">
-                  <div class="bg-blue-600 h-2 rounded-full" [style.width.%]="(h.value / caseService.totalEarnings()) * 100"></div>
+                  <div class="bg-blue-600 h-2 rounded-full" [style.width.%]="(h.value / (caseService.totalEarnings() || 1)) * 100"></div>
                 </div>
               </div>
             }
@@ -86,8 +87,6 @@ export class DashboardComponent {
     const data = this.caseService.hospitalStats();
     if (!data.length) return;
 
-    // Use D3 for a clean bar chart
-    const d3 = (window as any).d3;
     d3.select(element).selectAll('*').remove();
 
     const margin = { top: 10, right: 10, bottom: 30, left: 40 };
@@ -107,26 +106,26 @@ export class DashboardComponent {
       .padding(0.4);
 
     const y = d3.scaleLinear()
-      .domain([0, d3.max(data, d => d.value)])
+      .domain([0, d3.max(data, d => d.value) as number])
       .range([height, 0]);
 
     svg.append('g')
       .attr('transform', `translate(0,${height})`)
       .call(d3.axisBottom(x))
       .selectAll('text')
-      .attr('font-family', 'Inter')
-      .attr('font-size', '10px');
+      .style('font-family', 'Inter')
+      .style('font-size', '10px');
 
     svg.append('g')
       .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('~s')))
       .selectAll('text')
-      .attr('font-family', 'Inter');
+      .style('font-family', 'Inter');
 
     svg.selectAll('rect')
       .data(data)
       .enter()
       .append('rect')
-      .attr('x', d => x(d.name))
+      .attr('x', d => x(d.name) || 0)
       .attr('y', d => y(d.value))
       .attr('width', x.bandwidth())
       .attr('height', d => height - y(d.value))
