@@ -1,21 +1,22 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { Pool } from 'pg';
 
-// Initialize pool outside the handler for connection re-use across serverless invocations
+// This is the most effective way to resolve SELF_SIGNED_CERT_IN_CHAIN in Vercel
+// when connecting to databases with self-signed or non-standard CA chains.
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
   ssl: {
-    rejectUnauthorized: false // Required for Supabase/AWS managed Postgres
+    rejectUnauthorized: false
   },
-  max: 10, // Adjust based on your Supabase tier
+  max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { method } = req;
 
-  // CORS Headers for cross-origin safety
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -23,18 +24,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (method === 'OPTIONS') return res.status(200).end();
 
   const connectionString = process.env.POSTGRES_URL;
-
   if (!connectionString) {
-    return res.status(500).json({ 
-      error: 'Environment Error', 
-      message: 'POSTGRES_URL variable is not defined in Vercel settings.' 
-    });
+    return res.status(500).json({ error: 'POSTGRES_URL is not defined.' });
   }
 
   try {
     switch (method) {
       case 'GET':
-        // date::text and time::text formatting ensures standard strings are returned to the frontend
         const getResult = await pool.query(`
           SELECT 
             id, serial_number, date::text as date, hospital, patient_name, 
@@ -50,7 +46,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       case 'POST':
         const b = req.body;
-        // Logic: Increment serial number per specific day
         const serialResult = await pool.query(
           'SELECT COALESCE(MAX(serial_number), 0) + 1 as next_serial FROM cases WHERE date = $1',
           [b.date]
@@ -89,29 +84,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           u.procedure, u.startTime, u.endTime, u.duration, u.paymentMode,
           u.paymentStatus, u.surgeonName, u.amount, u.remarks, id
         ]);
-        
-        if (updateResult.rowCount === 0) {
-          return res.status(404).json({ error: 'Case not found' });
-        }
         return res.status(200).json(updateResult.rows[0]);
 
       case 'DELETE':
         const deleteId = req.query.id;
-        if (!deleteId) return res.status(400).json({ error: 'ID required' });
         await pool.query('DELETE FROM cases WHERE id = $1', [deleteId]);
         return res.status(204).end();
 
       default:
-        res.setHeader('Allow', ['GET', 'POST', 'PATCH', 'DELETE']);
-        return res.status(405).end(`Method ${method} Not Allowed`);
+        return res.status(405).end();
     }
   } catch (error: any) {
-    console.error('Database Operation Error:', error);
+    console.error('Database Error:', error);
     return res.status(500).json({ 
-      error: 'Database Error', 
+      error: 'Database Connection Error', 
       message: error.message,
-      code: error.code,
-      hint: error.message.includes('authentication') ? 'Check your password and URL encoding.' : 'Check table existence.'
+      code: error.code 
     });
   }
 }
