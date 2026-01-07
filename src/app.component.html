@@ -1,0 +1,241 @@
+<div class="min-h-screen flex flex-col md:flex-row">
+  <!-- Sidebar Navigation (Desktop) / Bottom Nav (Mobile) -->
+  <nav class="bg-white border-r border-slate-200 w-full md:w-64 flex flex-col fixed bottom-0 md:relative z-40 md:h-screen">
+    <div class="hidden md:flex items-center gap-3 p-6 mb-4">
+      <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">M</div>
+      <h1 class="text-xl font-bold tracking-tight">MedRegister</h1>
+    </div>
+
+    <div class="flex md:flex-col items-center justify-around md:justify-start gap-1 p-2 md:p-4">
+      <button 
+        (click)="activeTab.set('register')"
+        [class.bg-blue-50]="activeTab() === 'register'"
+        [class.text-blue-600]="activeTab() === 'register'"
+        class="flex-1 md:w-full flex flex-col md:flex-row items-center gap-2 md:gap-3 p-3 rounded-xl transition-all font-medium text-slate-500 hover:text-blue-600">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+        <span class="text-[10px] md:text-sm">Register</span>
+      </button>
+
+      <button 
+        (click)="activeTab.set('dashboard')"
+        [class.bg-blue-50]="activeTab() === 'dashboard'"
+        [class.text-blue-600]="activeTab() === 'dashboard'"
+        class="flex-1 md:w-full flex flex-col md:flex-row items-center gap-2 md:gap-3 p-3 rounded-xl transition-all font-medium text-slate-500 hover:text-blue-600">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        <span class="text-[10px] md:text-sm">Analytics</span>
+      </button>
+
+      <button 
+        (click)="activeTab.set('reports')"
+        [class.bg-blue-50]="activeTab() === 'reports'"
+        [class.text-blue-600]="activeTab() === 'reports'"
+        class="flex-1 md:w-full flex flex-col md:flex-row items-center gap-2 md:gap-3 p-3 rounded-xl transition-all font-medium text-slate-500 hover:text-blue-600">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        <span class="text-[10px] md:text-sm">Reports</span>
+      </button>
+
+      <button 
+        (click)="openAddForm()"
+        class="flex-1 md:hidden flex flex-col items-center gap-1 p-3 rounded-xl text-blue-600 font-bold">
+        <div class="bg-blue-600 text-white rounded-full p-2 shadow-lg shadow-blue-200">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+        </div>
+        <span class="text-[10px]">Add Case</span>
+      </button>
+    </div>
+
+    <div class="mt-auto p-4 hidden md:block">
+      <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Practice Health</p>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-medium">Earnings</span>
+          <span class="text-xs font-bold text-blue-600">₹{{ caseService.totalEarnings() | number }}</span>
+        </div>
+        <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+          <div class="bg-blue-600 h-full w-[65%]"></div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content Area -->
+  <main class="flex-1 p-4 md:p-8 overflow-y-auto pb-24 md:pb-8">
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div>
+        <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900">
+          {{ activeTab() === 'register' ? 'Patient Case Register' : (activeTab() === 'dashboard' ? 'Practice Analytics' : 'Financial Reports') }}
+        </h2>
+        <p class="text-slate-500 font-medium">
+           @if (activeTab() === 'register') { Manage your daily clinical case entries }
+           @else if (activeTab() === 'dashboard') { Track your performance and revenue trends }
+           @else { Detailed monthly and annual income statements }
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        @if (activeTab() === 'register') {
+          <div class="relative flex-1 min-w-[200px] md:flex-none">
+            <input 
+              type="text" 
+              [value]="searchQuery()"
+              (input)="searchQuery.set($any($event.target).value)"
+              placeholder="Search patient, hospital..."
+              class="w-full md:w-64 pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+            <svg class="w-5 h-5 absolute left-3 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <label class="hidden lg:block text-xs font-bold text-slate-400 uppercase">Status:</label>
+            <select 
+              [value]="statusFilter()"
+              (change)="statusFilter.set($any($event.target).value)"
+              class="bg-white border border-slate-200 text-sm font-semibold text-slate-700 px-3 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer">
+              <option value="ALL">All Status</option>
+              <option value="PENDING">Pending</option>
+              <option value="SUCCESS">Success</option>
+              <option value="CANCELLED">Cancelled</option>
+              <option value="REFUNDED">Refunded</option>
+            </select>
+          </div>
+        }
+        
+        <button 
+          (click)="openAddForm()"
+          class="hidden md:flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+          Add Case
+        </button>
+      </div>
+    </header>
+
+    @if (activeTab() === 'register') {
+      <!-- Case Register Table -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left">
+            <thead>
+              <tr class="bg-slate-50 border-b border-slate-100">
+                <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-16">S.No</th>
+                <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Hospital & Patient</th>
+                <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Procedure</th>
+                <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
+                <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+              @for (case of filteredCases(); track case.id) {
+                <tr class="hover:bg-slate-50/50 transition-colors group">
+                  <td class="px-6 py-4">
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs">
+                      #{{ case.serialNumber }}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="text-sm font-semibold text-slate-900">{{ case.date }}</div>
+                    <div class="text-xs text-slate-400">{{ case.startTime }} - {{ case.endTime }}</div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="text-sm font-bold text-slate-900">{{ case.patientName }}</div>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      <span class="text-xs text-slate-500 font-medium">{{ case.hospital }}</span>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="text-sm text-slate-700 font-medium">{{ case.procedure }}</div>
+                    <div class="text-[10px] inline-flex bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold uppercase mt-1">
+                      {{ case.anesthesia }}
+                    </div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="text-sm font-bold text-blue-600">₹{{ case.amount | number }}</div>
+                    <div class="text-[10px] text-slate-400 font-medium">{{ case.paymentMode }}</div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black tracking-wide uppercase"
+                      [class.bg-emerald-100]="case.paymentStatus === 'SUCCESS'"
+                      [class.text-emerald-700]="case.paymentStatus === 'SUCCESS'"
+                      [class.bg-amber-100]="case.paymentStatus === 'PENDING'"
+                      [class.text-amber-700]="case.paymentStatus === 'PENDING'"
+                      [class.bg-red-100]="case.paymentStatus === 'CANCELLED'"
+                      [class.text-red-700]="case.paymentStatus === 'CANCELLED'"
+                      [class.bg-indigo-100]="case.paymentStatus === 'REFUNDED'"
+                      [class.text-indigo-700]="case.paymentStatus === 'REFUNDED'">
+                      {{ case.paymentStatus }}
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div class="flex justify-end gap-1">
+                      <button (click)="openEditForm(case)" class="text-slate-400 hover:text-blue-600 p-2 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                      </button>
+                      <button (click)="deleteCase(case.id)" class="text-slate-400 hover:text-red-500 p-2 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="7" class="px-6 py-12 text-center text-slate-400 font-medium">
+                    No matching cases found. Adjust filters or search terms.
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    } @else if (activeTab() === 'dashboard') {
+      <!-- Dashboard & Analytics -->
+      <app-dashboard></app-dashboard>
+      
+      <!-- AI Insight Section -->
+      <div class="mt-8 bg-gradient-to-br from-indigo-600 to-blue-700 rounded-2xl p-6 text-white shadow-xl shadow-blue-100 overflow-hidden relative">
+        <div class="relative z-10">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="bg-white/20 p-2 rounded-lg backdrop-blur-md">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <h3 class="text-lg font-bold">Smart Practice Consultant</h3>
+          </div>
+
+          @if (aiInsight()) {
+            <p class="text-indigo-50 text-lg font-medium leading-relaxed mb-4">{{ aiInsight() }}</p>
+          } @else {
+            <p class="text-indigo-100 font-medium mb-4">Analyze your hospital performance and patient trends with AI.</p>
+          }
+
+          <button 
+            (click)="generateAiInsights()"
+            [disabled]="isAnalyzing()"
+            class="bg-white text-blue-700 px-6 py-2.5 rounded-xl font-bold hover:bg-indigo-50 transition-all flex items-center gap-2 disabled:opacity-70">
+            @if (isAnalyzing()) {
+              <div class="w-4 h-4 border-2 border-blue-700 border-t-transparent rounded-full animate-spin"></div>
+              Analyzing...
+            } @else {
+              Get Practice Insight
+            }
+          </button>
+        </div>
+        
+        <!-- Abstract background pattern -->
+        <div class="absolute -bottom-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+      </div>
+    } @else if (activeTab() === 'reports') {
+      <!-- Reports View -->
+      <app-reports></app-reports>
+    }
+  </main>
+</div>
+
+<!-- Modal Entry Form -->
+@if (showForm()) {
+  <app-case-form 
+    [initialData]="editingCase()"
+    (save)="handleSave($event)" 
+    (cancel)="closeForm()">
+  </app-case-form>
+}
