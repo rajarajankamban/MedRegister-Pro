@@ -1,4 +1,3 @@
-
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -64,6 +63,7 @@ export class CaseService {
       }
     } catch (error) {
       console.error('Failed to add case:', error);
+      alert('Error saving case. Please check your network or DB settings.');
     } finally {
       this._loading.set(false);
     }
@@ -102,7 +102,7 @@ export class CaseService {
     return {
       id: db.id,
       serialNumber: db.serial_number,
-      date: new Date(db.date).toISOString().split('T')[0],
+      date: db.date, // Backend now returns date as 'YYYY-MM-DD' text string
       hospital: db.hospital,
       patientName: db.patient_name,
       age: db.age,
@@ -116,7 +116,7 @@ export class CaseService {
       paymentMode: db.payment_mode,
       paymentStatus: db.payment_status,
       surgeonName: db.surgeon_name,
-      amount: parseFloat(db.amount),
+      amount: parseFloat(db.amount || 0),
       remarks: db.remarks
     };
   }

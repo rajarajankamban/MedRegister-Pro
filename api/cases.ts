@@ -1,22 +1,56 @@
-
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { sql } from '@vercel/postgres';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { method } = req;
 
+  // Set CORS headers for local development if necessary
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   try {
     switch (method) {
       case 'GET':
-        const { rows } = await sql`SELECT * FROM cases ORDER BY date DESC, serial_number DESC`;
+        // Fetch cases. We cast date to text to prevent timezone shifts during JSON serialization
+        const { rows } = await sql`
+          SELECT 
+            id, 
+            serial_number, 
+            date::text as date, 
+            hospital, 
+            patient_name, 
+            age, 
+            sex, 
+            diagnosis, 
+            anesthesia, 
+            procedure, 
+            start_time::text as start_time, 
+            end_time::text as end_time, 
+            duration, 
+            payment_mode, 
+            payment_status, 
+            surgeon_name, 
+            amount, 
+            remarks 
+          FROM cases 
+          ORDER BY date DESC, serial_number DESC 
+          LIMIT 1000
+        `;
         return res.status(200).json(rows);
 
       case 'POST':
-        const body = req.body;
-        // Server-side calculation of daily serial number
+        const b = req.body;
+        
+        // Securely calculate next serial number for this specific day
         const serialResult = await sql`
           SELECT COALESCE(MAX(serial_number), 0) + 1 as next_serial 
-          FROM cases WHERE date = ${body.date}
+          FROM cases 
+          WHERE date = ${b.date}
         `;
         const nextSerial = serialResult.rows[0].next_serial;
 
@@ -26,37 +60,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             diagnosis, anesthesia, procedure, start_time, end_time, 
             duration, payment_mode, payment_status, surgeon_name, amount, remarks
           ) VALUES (
-            ${nextSerial}, ${body.date}, ${body.hospital}, ${body.patientName}, 
-            ${body.age}, ${body.sex}, ${body.diagnosis}, ${body.anesthesia}, 
-            ${body.procedure}, ${body.startTime}, ${body.endTime}, ${body.duration}, 
-            ${body.paymentMode}, ${body.paymentStatus}, ${body.surgeonName}, 
-            ${body.amount}, ${body.remarks}
-          ) RETURNING *
+            ${nextSerial}, ${b.date}, ${b.hospital}, ${b.patientName}, 
+            ${b.age || null}, ${b.sex}, ${b.diagnosis}, ${b.anesthesia}, 
+            ${b.procedure}, ${b.startTime}, ${b.endTime}, ${b.duration}, 
+            ${b.paymentMode}, ${b.paymentStatus}, ${b.surgeonName}, 
+            ${b.amount}, ${b.remarks || ''}
+          ) RETURNING *, date::text as date, start_time::text as start_time, end_time::text as end_time
         `;
         return res.status(201).json(insertResult.rows[0]);
 
       case 'PATCH':
         const { id } = req.query;
-        const updateBody = req.body;
+        const u = req.body;
         const updateResult = await sql`
           UPDATE cases SET 
-            hospital = ${updateBody.hospital},
-            patient_name = ${updateBody.patientName},
-            age = ${updateBody.age},
-            sex = ${updateBody.sex},
-            diagnosis = ${updateBody.diagnosis},
-            anesthesia = ${updateBody.anesthesia},
-            procedure = ${updateBody.procedure},
-            start_time = ${updateBody.startTime},
-            end_time = ${updateBody.endTime},
-            duration = ${updateBody.duration},
-            payment_mode = ${updateBody.paymentMode},
-            payment_status = ${updateBody.paymentStatus},
-            surgeon_name = ${updateBody.surgeonName},
-            amount = ${updateBody.amount},
-            remarks = ${updateBody.remarks}
+            hospital = ${u.hospital},
+            patient_name = ${u.patientName},
+            age = ${u.age},
+            sex = ${u.sex},
+            diagnosis = ${u.diagnosis},
+            anesthesia = ${u.anesthesia},
+            procedure = ${u.procedure},
+            start_time = ${u.startTime},
+            end_time = ${u.endTime},
+            duration = ${u.duration},
+            payment_mode = ${u.paymentMode},
+            payment_status = ${u.paymentStatus},
+            surgeon_name = ${u.surgeonName},
+            amount = ${u.amount},
+            remarks = ${u.remarks}
           WHERE id = ${id as string}
-          RETURNING *
+          RETURNING *, date::text as date, start_time::text as start_time, end_time::text as end_time
         `;
         return res.status(200).json(updateResult.rows[0]);
 
@@ -70,7 +104,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(405).end(`Method ${method} Not Allowed`);
     }
   } catch (error: any) {
-    console.error('API Error:', error);
-    return res.status(500).json({ error: error.message });
+    console.error('Serverless DB Error:', error);
+    return res.status(500).json({ 
+      error: 'Backend failure', 
+      message: error.message,
+      hint: 'Ensure POSTGRES_URL in Vercel is set to your Supabase Transaction Pooler URI (Port 6543).'
+    });
   }
 }
