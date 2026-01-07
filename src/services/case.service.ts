@@ -1,4 +1,7 @@
-import { Injectable, signal, computed } from '@angular/core';
+
+import { Injectable, signal, computed, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'CANCELLED' | 'REFUNDED';
 
@@ -15,7 +18,7 @@ export interface CaseEntry {
   procedure: string;
   startTime: string;
   endTime: string;
-  duration: number; // in minutes
+  duration: number;
   paymentMode: 'Bank Transfer' | 'UPI' | 'Credit' | 'Cash';
   paymentStatus: PaymentStatus;
   surgeonName: string;
@@ -23,165 +26,149 @@ export interface CaseEntry {
   remarks?: string;
 }
 
-export interface SummaryRecord {
-  period: string;
-  cashTotal: number;
-  digitalTotal: number;
-  totalCases: number;
-  totalAmount: number;
-}
-
 @Injectable({ providedIn: 'root' })
 export class CaseService {
-  private _cases = signal<CaseEntry[]>(this.getInitialData());
+  private http = inject(HttpClient);
+  private readonly apiUrl = '/api/cases';
+  
+  private _cases = signal<CaseEntry[]>([]);
+  private _loading = signal<boolean>(false);
   
   cases = this._cases.asReadonly();
+  isLoading = this._loading.asReadonly();
+
+  constructor() {
+    this.refreshCases();
+  }
+
+  async refreshCases() {
+    this._loading.set(true);
+    try {
+      const data = await firstValueFrom(this.http.get<any[]>(this.apiUrl));
+      const mapped: CaseEntry[] = (data || []).map(db => this.mapFromDb(db));
+      this._cases.set(mapped);
+    } catch (error) {
+      console.error('Failed to fetch cases:', error);
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  async addCase(entry: Omit<CaseEntry, 'id' | 'serialNumber'>) {
+    this._loading.set(true);
+    try {
+      const response = await firstValueFrom(this.http.post<any>(this.apiUrl, entry));
+      if (response) {
+        const newCase = this.mapFromDb(response);
+        this._cases.update(prev => [newCase, ...prev]);
+      }
+    } catch (error) {
+      console.error('Failed to add case:', error);
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  async updateCase(updated: CaseEntry) {
+    this._loading.set(true);
+    try {
+      const response = await firstValueFrom(
+        this.http.patch<any>(`${this.apiUrl}?id=${updated.id}`, updated)
+      );
+      if (response) {
+        const refreshed = this.mapFromDb(response);
+        this._cases.update(prev => prev.map(c => c.id === refreshed.id ? refreshed : c));
+      }
+    } catch (error) {
+      console.error('Failed to update case:', error);
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  async deleteCase(id: string) {
+    this._loading.set(true);
+    try {
+      await firstValueFrom(this.http.delete(`${this.apiUrl}?id=${id}`));
+      this._cases.update(prev => prev.filter(c => c.id !== id));
+    } catch (error) {
+      console.error('Failed to delete case:', error);
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  private mapFromDb(db: any): CaseEntry {
+    return {
+      id: db.id,
+      serialNumber: db.serial_number,
+      date: new Date(db.date).toISOString().split('T')[0],
+      hospital: db.hospital,
+      patientName: db.patient_name,
+      age: db.age,
+      sex: db.sex,
+      diagnosis: db.diagnosis,
+      anesthesia: db.anesthesia,
+      procedure: db.procedure,
+      startTime: db.start_time?.substring(0, 5) || '00:00',
+      endTime: db.end_time?.substring(0, 5) || '00:00',
+      duration: db.duration,
+      paymentMode: db.payment_mode,
+      paymentStatus: db.payment_status,
+      surgeonName: db.surgeon_name,
+      amount: parseFloat(db.amount),
+      remarks: db.remarks
+    };
+  }
 
   totalEarnings = computed(() => 
-    this._cases().reduce((acc, curr) => acc + curr.amount, 0)
+    this._cases().reduce((acc, curr) => acc + (curr.amount || 0), 0)
   );
 
   hospitalStats = computed(() => {
     const stats: Record<string, number> = {};
     this._cases().forEach(c => {
-      stats[c.hospital] = (stats[c.hospital] || 0) + c.amount;
+      stats[c.hospital] = (stats[c.hospital] || 0) + (c.amount || 0);
     });
     return Object.entries(stats).map(([name, value]) => ({ name, value }));
   });
 
   monthlySummary = computed(() => {
-    const groups: Record<string, SummaryRecord> = {};
+    const groups: Record<string, any> = {};
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
     this._cases().forEach(c => {
       const d = new Date(c.date);
       const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-      
       if (!groups[key]) {
         groups[key] = { period: key, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 };
       }
-      
       groups[key].totalCases += 1;
-      groups[key].totalAmount += c.amount;
+      groups[key].totalAmount += (c.amount || 0);
       if (c.paymentMode === 'Cash') {
-        groups[key].cashTotal += c.amount;
-      } else if (c.paymentMode === 'Bank Transfer' || c.paymentMode === 'UPI') {
-        groups[key].digitalTotal += c.amount;
+        groups[key].cashTotal += (c.amount || 0);
+      } else if (['Bank Transfer', 'UPI'].includes(c.paymentMode)) {
+        groups[key].digitalTotal += (c.amount || 0);
       }
     });
-
-    return Object.values(groups).sort((a, b) => {
-      const dateA = new Date(a.period);
-      const dateB = new Date(b.period);
-      return dateB.getTime() - dateA.getTime();
-    });
+    return Object.values(groups).sort((a: any, b: any) => new Date(b.period).getTime() - new Date(a.period).getTime());
   });
 
   annualSummary = computed(() => {
-    const groups: Record<string, SummaryRecord> = {};
-
+    const groups: Record<string, any> = {};
     this._cases().forEach(c => {
       const d = new Date(c.date);
       const key = `${d.getFullYear()}`;
-      
       if (!groups[key]) {
         groups[key] = { period: key, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 };
       }
-      
       groups[key].totalCases += 1;
-      groups[key].totalAmount += c.amount;
+      groups[key].totalAmount += (c.amount || 0);
       if (c.paymentMode === 'Cash') {
-        groups[key].cashTotal += c.amount;
-      } else if (c.paymentMode === 'Bank Transfer' || c.paymentMode === 'UPI') {
-        groups[key].digitalTotal += c.amount;
+        groups[key].cashTotal += (c.amount || 0);
+      } else if (['Bank Transfer', 'UPI'].includes(c.paymentMode)) {
+        groups[key].digitalTotal += (c.amount || 0);
       }
     });
-
-    return Object.values(groups).sort((a, b) => b.period.localeCompare(a.period));
+    return Object.values(groups).sort((a: any, b: any) => b.period.localeCompare(a.period));
   });
-
-  private getNextSerialForDate(date: string): number {
-    const casesOnDate = this._cases().filter(c => c.date === date);
-    if (casesOnDate.length === 0) return 1;
-    return Math.max(...casesOnDate.map(c => c.serialNumber)) + 1;
-  }
-
-  addCase(entry: Omit<CaseEntry, 'id' | 'serialNumber'>) {
-    const sn = this.getNextSerialForDate(entry.date);
-    const newEntry: CaseEntry = {
-      ...entry,
-      id: Math.random().toString(36).substring(2, 9),
-      serialNumber: sn
-    };
-    this._cases.update(prev => [newEntry, ...prev]);
-  }
-
-  deleteCase(id: string) {
-    this._cases.update(prev => prev.filter(c => c.id !== id));
-  }
-
-  updateCase(updated: CaseEntry) {
-    this._cases.update(prev => {
-      const existing = prev.find(c => c.id === updated.id);
-      // If date changed, we must recalculate serial number
-      if (existing && existing.date !== updated.date) {
-        updated.serialNumber = this.getNextSerialForDate(updated.date);
-      }
-      return prev.map(c => c.id === updated.id ? updated : c);
-    });
-  }
-
-  private getInitialData(): CaseEntry[] {
-    const hospitals = ['City Hospital', 'Wellness Clinic', 'Sunrise Medical Center', 'General Hospital'];
-    const surgeons = ['Dr. Smith', 'Dr. Kapoor', 'Dr. Williams', 'Dr. Garcia'];
-    const anesthesias = [
-      'GA', 
-      'Spinal anesthesia', 
-      'Epidural + spinal', 
-      'Epidural', 
-      'Nerve block', 
-      'IV sedation', 
-      'LA', 
-      'MAC'
-    ];
-    const paymentModes: Array<CaseEntry['paymentMode']> = ['Bank Transfer', 'UPI', 'Credit', 'Cash'];
-    const paymentStatuses: PaymentStatus[] = ['SUCCESS', 'PENDING', 'CANCELLED', 'REFUNDED'];
-    
-    const cases: CaseEntry[] = [];
-    const dateCountMap: Record<string, number> = {};
-
-    for (let i = 0; i < 24; i++) {
-      const dateObj = new Date();
-      dateObj.setMonth(dateObj.getMonth() - Math.floor(i / 4));
-      dateObj.setDate(1 + (i % 28));
-      const dateStr = dateObj.toISOString().split('T')[0];
-
-      // Daily serial logic
-      dateCountMap[dateStr] = (dateCountMap[dateStr] || 0) + 1;
-      const serialNumber = dateCountMap[dateStr];
-
-      cases.push({
-        id: `mock-${i}`,
-        serialNumber,
-        date: dateStr,
-        hospital: hospitals[i % hospitals.length],
-        patientName: `Patient ${i + 1}`,
-        age: 25 + (i * 2),
-        sex: i % 2 === 0 ? 'Male' : 'Female',
-        diagnosis: i % 3 === 0 ? 'Acute Appendicitis' : 'Fracture Tibia',
-        anesthesia: anesthesias[i % anesthesias.length],
-        procedure: i % 3 === 0 ? 'Laparoscopic Appendectomy' : 'Open Reduction',
-        startTime: '09:00',
-        endTime: '10:30',
-        duration: 90,
-        paymentMode: paymentModes[i % paymentModes.length],
-        paymentStatus: paymentStatuses[i % paymentStatuses.length],
-        surgeonName: surgeons[i % surgeons.length],
-        amount: 5000 + (i * 800),
-        remarks: 'Smooth recovery'
-      });
-    }
-
-    return cases.sort((a, b) => b.date.localeCompare(a.date) || b.serialNumber - a.serialNumber);
-  }
 }
