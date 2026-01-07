@@ -9,7 +9,6 @@ import * as d3 from 'd3';
   imports: [CommonModule],
   template: `
     <div class="space-y-6">
-      <!-- Stats Overview -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <p class="text-sm font-medium text-slate-500 mb-1">Total Earnings</p>
@@ -24,7 +23,7 @@ import * as d3 from 'd3';
           <p class="text-sm font-medium text-slate-500 mb-1">Total Procedures</p>
           <h3 class="text-3xl font-bold text-slate-900">{{ caseService.cases().length }}</h3>
           <div class="mt-2 flex items-center text-slate-600 text-sm font-medium">
-            <span>Average: {{ (caseService.totalEarnings() / (caseService.cases().length || 1)) | currency:'INR':'symbol':'1.0-0' }} / case</span>
+            <span>Avg: {{ (caseService.totalEarnings() / (caseService.cases().length || 1)) | number:'1.0-0' }} / case</span>
           </div>
         </div>
 
@@ -32,20 +31,19 @@ import * as d3 from 'd3';
           <p class="text-sm font-medium text-slate-500 mb-1">Top Hospital</p>
           <h3 class="text-3xl font-bold text-slate-900">{{ topHospital()?.name || 'N/A' }}</h3>
           <div class="mt-2 text-slate-600 text-sm font-medium">
-            <span>₹{{ topHospital()?.value | number }} earned here</span>
+            <span>₹{{ topHospital()?.value | number }} revenue</span>
           </div>
         </div>
       </div>
 
-      <!-- Charts Section -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h4 class="text-lg font-bold text-slate-800 mb-6">Hospital Revenue Split</h4>
+          <h4 class="text-lg font-bold text-slate-800 mb-6">Revenue by Facility</h4>
           <div #chartContainer class="h-64 w-full"></div>
         </div>
 
         <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h4 class="text-lg font-bold text-slate-800 mb-4">Recent Performance Analysis</h4>
+          <h4 class="text-lg font-bold text-slate-800 mb-4">Case Volume Breakdown</h4>
           <div class="space-y-4">
             @for (h of caseService.hospitalStats(); track h.name) {
               <div>
@@ -53,10 +51,13 @@ import * as d3 from 'd3';
                   <span>{{ h.name }}</span>
                   <span>₹{{ h.value | number }}</span>
                 </div>
-                <div class="w-full bg-slate-100 rounded-full h-2">
-                  <div class="bg-blue-600 h-2 rounded-full" [style.width.%]="(h.value / (caseService.totalEarnings() || 1)) * 100"></div>
+                <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div class="bg-blue-600 h-2 rounded-full transition-all duration-500" 
+                    [style.width.%]="(h.value / (caseService.totalEarnings() || 1)) * 100"></div>
                 </div>
               </div>
+            } @empty {
+              <p class="text-slate-400 italic text-center py-12">No hospital data available</p>
             }
           </div>
         </div>
@@ -77,8 +78,9 @@ export class DashboardComponent {
   constructor() {
     effect(() => {
       const el = this.chartContainer();
-      if (el) {
-        this.renderChart(el.nativeElement);
+      if (el && this.caseService.cases().length > 0) {
+        // Use requestAnimationFrame to ensure the container is sized
+        requestAnimationFrame(() => this.renderChart(el.nativeElement));
       }
     });
   }
@@ -89,9 +91,11 @@ export class DashboardComponent {
 
     d3.select(element).selectAll('*').remove();
 
-    const margin = { top: 10, right: 10, bottom: 30, left: 40 };
+    const margin = { top: 20, right: 20, bottom: 40, left: 50 };
     const width = element.clientWidth - margin.left - margin.right;
     const height = element.clientHeight - margin.top - margin.bottom;
+
+    if (width <= 0 || height <= 0) return;
 
     const svg = d3.select(element)
       .append('svg')
@@ -106,13 +110,16 @@ export class DashboardComponent {
       .padding(0.4);
 
     const y = d3.scaleLinear()
-      .domain([0, d3.max(data, d => d.value) as number])
+      .domain([0, d3.max(data, d => d.value) || 0])
+      .nice()
       .range([height, 0]);
 
     svg.append('g')
       .attr('transform', `translate(0,${height})`)
       .call(d3.axisBottom(x))
       .selectAll('text')
+      .attr('transform', 'translate(-10,0)rotate(-20)')
+      .style('text-anchor', 'end')
       .style('font-family', 'Inter')
       .style('font-size', '10px');
 
@@ -126,10 +133,14 @@ export class DashboardComponent {
       .enter()
       .append('rect')
       .attr('x', d => x(d.name) || 0)
-      .attr('y', d => y(d.value))
+      .attr('y', height) // Start from bottom for animation
       .attr('width', x.bandwidth())
-      .attr('height', d => height - y(d.value))
-      .attr('fill', '#3b82f6')
-      .attr('rx', 4);
+      .attr('height', 0)
+      .attr('fill', '#2563eb')
+      .attr('rx', 4)
+      .transition()
+      .duration(800)
+      .attr('y', d => y(d.value))
+      .attr('height', d => height - y(d.value));
   }
 }

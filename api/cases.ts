@@ -1,29 +1,33 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { sql } from '@vercel/postgres';
+import { createPool } from '@vercel/postgres';
+
+// Initialize pool outside the handler for connection re-use in serverless
+const pool = createPool({
+  connectionString: process.env.POSTGRES_URL
+});
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { method } = req;
 
-  // 1. Basic Security/CORS
+  // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (method === 'OPTIONS') return res.status(200).end();
 
-  // 2. Environment Variable Validation
   if (!process.env.POSTGRES_URL) {
-    console.error('CRITICAL: POSTGRES_URL is not defined in Environment Variables.');
     return res.status(500).json({ 
-      error: 'Configuration Error', 
-      message: 'POSTGRES_URL is missing in Vercel Environment Variables.' 
+      error: 'Config Error', 
+      message: 'POSTGRES_URL is missing in environment variables.' 
     });
   }
 
   try {
     switch (method) {
       case 'GET':
-        const { rows } = await sql`
+        // Using pool.sql for tagged template queries
+        const { rows } = await pool.sql`
           SELECT 
             id, serial_number, date::text as date, hospital, patient_name, 
             age, sex, diagnosis, anesthesia, procedure, 
@@ -38,13 +42,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       case 'POST':
         const b = req.body;
-        const serialResult = await sql`
+        const serialResult = await pool.sql`
           SELECT COALESCE(MAX(serial_number), 0) + 1 as next_serial 
           FROM cases WHERE date = ${b.date}
         `;
         const nextSerial = serialResult.rows[0].next_serial;
 
-        const insertResult = await sql`
+        const insertResult = await pool.sql`
           INSERT INTO cases (
             serial_number, date, hospital, patient_name, age, sex, 
             diagnosis, anesthesia, procedure, start_time, end_time, 
@@ -62,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case 'PATCH':
         const { id } = req.query;
         const u = req.body;
-        const updateResult = await sql`
+        const updateResult = await pool.sql`
           UPDATE cases SET 
             hospital = ${u.hospital}, patient_name = ${u.patientName},
             age = ${u.age}, sex = ${u.sex}, diagnosis = ${u.diagnosis},
@@ -78,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       case 'DELETE':
         const deleteId = req.query.id;
-        await sql`DELETE FROM cases WHERE id = ${deleteId as string}`;
+        await pool.sql`DELETE FROM cases WHERE id = ${deleteId as string}`;
         return res.status(204).end();
 
       default:
@@ -86,11 +90,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(405).end(`Method ${method} Not Allowed`);
     }
   } catch (error: any) {
-    console.error('Database Error:', error);
+    console.error('Postgres Pool Error:', error);
     return res.status(500).json({ 
-      error: 'Database Query Failed', 
+      error: 'Database Error', 
       details: error.message,
-      hint: 'Check if the "cases" table exists and POSTGRES_URL includes sslmode=require'
+      code: error.code
     });
   }
 }
