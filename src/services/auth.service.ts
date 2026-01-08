@@ -1,49 +1,61 @@
-import { Injectable, signal, computed } from '@angular/core';
+
+import { Injectable, signal, computed, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
+import { firstValueFrom } from 'rxjs';
+
+interface SupabaseConfig {
+  supabaseUrl: string;
+  supabaseKey: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  // Conventionally, Vercel uses NEXT_PUBLIC_ prefix for browser-accessible variables
-  // We check multiple possible locations for these variables
-  private readonly supabaseUrl = 
-    (window as any).process?.env?.SUPABASE_URL || 
-    (window as any).process?.env?.NEXT_PUBLIC_SUPABASE_URL || 
-    '';
-
-  private readonly supabaseKey = 
-    (window as any).process?.env?.SUPABASE_ANON_KEY || 
-    (window as any).process?.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-    '';
-  
+  // Explicitly type HttpClient to avoid 'unknown' type inference errors
+  private readonly http: HttpClient = inject(HttpClient);
   private supabase: SupabaseClient | null = null;
   private _user = signal<User | null>(null);
   
-  // Track if the service is properly configured
-  isConfigured = signal<boolean>(!!(this.supabaseUrl && this.supabaseKey));
+  // States for configuration lifecycle
+  isConfiguring = signal<boolean>(true);
+  isConfigured = signal<boolean>(false);
 
   user = this._user.asReadonly();
   isAuthenticated = computed(() => !!this._user());
 
   constructor() {
-    if (this.isConfigured()) {
-      try {
-        this.supabase = createClient(this.supabaseUrl, this.supabaseKey);
-        
-        // Check current session
-        this.supabase.auth.getSession().then(({ data: { session } }) => {
-          this._user.set(session?.user ?? null);
-        });
+    this.initialize();
+  }
 
-        // Listen for auth changes
+  private async initialize() {
+    try {
+      // 1. Fetch config from our Vercel backend bridge with explicit typing
+      const config = await firstValueFrom(
+        this.http.get<SupabaseConfig>('/api/config')
+      );
+      
+      if (config && config.supabaseUrl && config.supabaseKey) {
+        // 2. Initialize Supabase Client
+        this.supabase = createClient(config.supabaseUrl, config.supabaseKey);
+        
+        // 3. Setup Auth Listeners
+        const { data: { session } } = await this.supabase.auth.getSession();
+        this._user.set(session?.user ?? null);
+
         this.supabase.auth.onAuthStateChange((_event, session) => {
           this._user.set(session?.user ?? null);
         });
-      } catch (err) {
-        console.error('Failed to initialize Supabase:', err);
+
+        this.isConfigured.set(true);
+      } else {
+        console.error('Supabase config returned from API is incomplete.');
         this.isConfigured.set(false);
       }
-    } else {
-      console.warn('Supabase credentials missing. Authentication will be disabled.');
+    } catch (err) {
+      console.error('Failed to fetch environment configuration:', err);
+      this.isConfigured.set(false);
+    } finally {
+      this.isConfiguring.set(false);
     }
   }
 

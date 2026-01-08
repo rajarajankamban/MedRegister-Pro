@@ -1,6 +1,14 @@
 <div class="min-h-screen bg-slate-50 flex">
   
-  @if (!auth.isConfigured()) {
+  @if (auth.isConfiguring()) {
+    <!-- Initializing State -->
+    <div class="flex-1 flex items-center justify-center p-6 bg-slate-50">
+      <div class="flex flex-col items-center gap-4">
+        <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <p class="text-slate-500 font-bold text-xs uppercase tracking-widest">Securing Connection...</p>
+      </div>
+    </div>
+  } @else if (!auth.isConfigured()) {
     <!-- Configuration Missing Screen -->
     <div class="flex-1 flex items-center justify-center p-6 bg-slate-100">
       <div class="max-w-md w-full bg-white rounded-3xl shadow-xl border border-red-100 p-10 text-center">
@@ -9,19 +17,19 @@
         </div>
         <h1 class="text-2xl font-bold text-slate-900 mb-4">Setup Required</h1>
         <p class="text-slate-600 mb-8 text-sm leading-relaxed">
-          The Supabase connection strings are missing. Please add the following Environment Variables to your deployment:
+          The application backend did not return any Supabase credentials. Ensure you have added these environment variables in your Vercel Dashboard:
         </p>
         <div class="space-y-3 text-left mb-8">
           <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 font-mono text-xs">
             <p class="text-slate-400 mb-1">Variable 1</p>
-            <p class="text-slate-900 font-bold">SUPABASE_URL</p>
+            <p class="text-slate-900 font-bold uppercase">SUPABASE_URL</p>
           </div>
           <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 font-mono text-xs">
             <p class="text-slate-400 mb-1">Variable 2</p>
-            <p class="text-slate-900 font-bold">SUPABASE_ANON_KEY</p>
+            <p class="text-slate-900 font-bold uppercase">SUPABASE_ANON_KEY</p>
           </div>
         </div>
-        <p class="text-xs text-slate-400">After adding these, redeploy your application.</p>
+        <button onclick="window.location.reload()" class="text-xs font-bold text-blue-600 hover:underline">Retry Connection</button>
       </div>
     </div>
   } @else if (!auth.isAuthenticated()) {
