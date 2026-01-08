@@ -1,270 +1,109 @@
-import { Injectable, signal, computed, inject, effect } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
-import { AuthService } from './auth.service';
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import { Pool } from 'pg';
 
-export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'CANCELLED' | 'REFUNDED';
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-export interface CaseEntry {
-  id: string;
-  serialNumber: number;
-  date: string;
-  hospital: string;
-  patientName: string;
-  age: number;
-  sex: 'Male' | 'Female' | 'Other';
-  diagnosis: string;
-  anesthesia: string;
-  procedure: string;
-  startTime: string;
-  endTime: string;
-  duration: number;
-  paymentMode: 'Bank Transfer' | 'UPI' | 'Credit' | 'Cash';
-  paymentStatus: PaymentStatus;
-  surgeonName: string;
-  amount: number;
-  remarks?: string;
-}
+const pool = new Pool({
+  connectionString: process.env.POSTGRES_URL,
+  ssl: {
+    rejectUnauthorized: false
+  },
+  max: 10,
+  idleTimeoutMillis: 30000,
+});
 
-interface SummaryGroup {
-  period: string;
-  sortKey: number;
-  cashTotal: number;
-  digitalTotal: number;
-  pendingAmount: number;
-  totalCases: number;
-  totalAmount: number;
-}
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const { method } = req;
+  const userId = req.headers['x-user-id'] as string;
 
-@Injectable({ providedIn: 'root' })
-export class CaseService {
-  private readonly http: HttpClient = inject(HttpClient);
-  private readonly auth: AuthService = inject(AuthService);
-  private readonly apiUrl = '/api/cases';
-  
-  private _cases = signal<CaseEntry[]>([]);
-  private _loading = signal<boolean>(false);
-  
-  cases = this._cases.asReadonly();
-  isLoading = this._loading.asReadonly();
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-id');
 
-  constructor() {
-    effect(() => {
-      if (this.auth.isAuthenticated()) {
-        this.refreshCases();
-      } else {
-        this._cases.set([]);
-      }
+  if (method === 'OPTIONS') return res.status(200).end();
+
+  // Security Check: Every request must have a valid User ID from Supabase Auth
+  if (!userId || userId === 'undefined' || userId === 'null') {
+    return res.status(401).json({ 
+      error: 'Unauthorized', 
+      message: 'Access denied. Please log in with Google to manage your clinical records.' 
     });
   }
 
-  private getHeaders(): HttpHeaders {
-    const userId = this.auth.getUserId() || '';
-    return new HttpHeaders().set('x-user-id', userId);
-  }
+  try {
+    switch (method) {
+      case 'GET':
+        const getResult = await pool.query(`
+          SELECT 
+            id, serial_number, date::text as date, hospital, patient_name, 
+            age, sex, diagnosis, anesthesia, procedure, 
+            start_time::text as start_time, end_time::text as end_time, 
+            duration, payment_mode, payment_status, surgeon_name, 
+            amount, remarks 
+          FROM cases 
+          WHERE user_id = $1
+          ORDER BY date DESC, serial_number DESC 
+          LIMIT 1000
+        `, [userId]);
+        return res.status(200).json(getResult.rows);
 
-  async refreshCases() {
-    if (!this.auth.isAuthenticated()) return;
+      case 'POST':
+        const b = req.body;
+        // Calculate daily serial number specific to THIS authenticated user
+        const serialResult = await pool.query(
+          'SELECT COALESCE(MAX(serial_number), 0) + 1 as next_serial FROM cases WHERE date = $1 AND user_id = $2',
+          [b.date, userId]
+        );
+        const nextSerial = serialResult.rows[0].next_serial;
 
-    this._loading.set(true);
-    try {
-      const data = await firstValueFrom(
-        this.http.get<any[]>(this.apiUrl, { headers: this.getHeaders() })
-      );
-      const mapped: CaseEntry[] = (data || []).map(db => this.mapFromDb(db));
-      this._cases.set(mapped);
-    } catch (error) {
-      console.error('Failed to fetch cases:', error);
-    } finally {
-      this._loading.set(false);
+        const insertResult = await pool.query(`
+          INSERT INTO cases (
+            user_id, serial_number, date, hospital, patient_name, age, sex, 
+            diagnosis, anesthesia, procedure, start_time, end_time, 
+            duration, payment_mode, payment_status, surgeon_name, amount, remarks
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+          ) RETURNING *, date::text as date, start_time::text as start_time, end_time::text as end_time
+        `, [
+          userId, nextSerial, b.date, b.hospital, b.patientName, b.age || null, b.sex,
+          b.diagnosis, b.anesthesia, b.procedure, b.startTime, b.endTime,
+          b.duration, b.paymentMode, b.paymentStatus, b.surgeonName, b.amount, b.remarks || ''
+        ]);
+        return res.status(201).json(insertResult.rows[0]);
+
+      case 'PATCH':
+        const { id } = req.query;
+        const u = req.body;
+        const updateResult = await pool.query(`
+          UPDATE cases SET 
+            hospital = $1, patient_name = $2, age = $3, sex = $4, 
+            diagnosis = $5, anesthesia = $6, procedure = $7, 
+            start_time = $8, end_time = $9, duration = $10, 
+            payment_mode = $11, payment_status = $12, 
+            surgeon_name = $13, amount = $14, remarks = $15
+          WHERE id = $16 AND user_id = $17
+          RETURNING *, date::text as date, start_time::text as start_time, end_time::text as end_time
+        `, [
+          u.hospital, u.patientName, u.age, u.sex, u.diagnosis, u.anesthesia,
+          u.procedure, u.startTime, u.endTime, u.duration, u.paymentMode,
+          u.paymentStatus, u.surgeonName, u.amount, u.remarks, id, userId
+        ]);
+        
+        if (updateResult.rowCount === 0) return res.status(404).json({ error: 'Case not found or unauthorized access.' });
+        return res.status(200).json(updateResult.rows[0]);
+
+      case 'DELETE':
+        const deleteId = req.query.id;
+        const deleteResult = await pool.query('DELETE FROM cases WHERE id = $1 AND user_id = $2', [deleteId, userId]);
+        if (deleteResult.rowCount === 0) return res.status(404).json({ error: 'Case not found or unauthorized access.' });
+        return res.status(204).end();
+
+      default:
+        return res.status(405).end();
     }
+  } catch (error: any) {
+    console.error('Database Error:', error);
+    return res.status(500).json({ error: 'Database Error', message: error.message });
   }
-
-  async addCase(entry: Omit<CaseEntry, 'id' | 'serialNumber'>) {
-    this._loading.set(true);
-    try {
-      const response = await firstValueFrom(
-        this.http.post<any>(this.apiUrl, entry, { headers: this.getHeaders() })
-      );
-      if (response) {
-        const newCase = this.mapFromDb(response);
-        this._cases.update(prev => [newCase, ...prev]);
-      }
-    } catch (error) {
-      console.error('Failed to add case:', error);
-    } finally {
-      this._loading.set(false);
-    }
-  }
-
-  async updateCase(updated: CaseEntry) {
-    this._loading.set(true);
-    try {
-      const response = await firstValueFrom(
-        this.http.patch<any>(`${this.apiUrl}?id=${updated.id}`, updated, { headers: this.getHeaders() })
-      );
-      if (response) {
-        const refreshed = this.mapFromDb(response);
-        this._cases.update(prev => prev.map(c => c.id === refreshed.id ? refreshed : c));
-      }
-    } catch (error) {
-      console.error('Failed to update case:', error);
-    } finally {
-      this._loading.set(false);
-    }
-  }
-
-  async deleteCase(id: string) {
-    this._loading.set(true);
-    try {
-      await firstValueFrom(
-        this.http.delete(`${this.apiUrl}?id=${id}`, { headers: this.getHeaders() })
-      );
-      this._cases.update(prev => prev.filter(c => c.id !== id));
-    } catch (error) {
-      console.error('Failed to delete case:', error);
-    } finally {
-      this._loading.set(false);
-    }
-  }
-
-  private mapFromDb(db: any): CaseEntry {
-    return {
-      id: db.id,
-      serialNumber: db.serial_number,
-      date: db.date,
-      hospital: db.hospital,
-      patientName: db.patient_name,
-      age: db.age,
-      sex: db.sex,
-      diagnosis: db.diagnosis,
-      anesthesia: db.anesthesia,
-      procedure: db.procedure,
-      startTime: db.start_time?.substring(0, 5) || '00:00',
-      endTime: db.end_time?.substring(0, 5) || '00:00',
-      duration: db.duration,
-      paymentMode: db.payment_mode,
-      paymentStatus: db.payment_status,
-      surgeonName: db.surgeon_name,
-      amount: parseFloat(db.amount || 0),
-      remarks: db.remarks
-    };
-  }
-
-  totalEarnings = computed(() => 
-    this._cases().reduce((acc, curr) => acc + (curr.amount || 0), 0)
-  );
-
-  hospitalStats = computed(() => {
-    const stats: Record<string, number> = {};
-    this._cases().forEach(c => {
-      stats[c.hospital] = (stats[c.hospital] || 0) + (c.amount || 0);
-    });
-    return Object.entries(stats).map(([name, value]) => ({ name, value }));
-  });
-
-  monthlySummary = computed<SummaryGroup[]>(() => {
-    const cases = this._cases();
-    const groups = new Map<string, SummaryGroup>();
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    
-    cases.forEach(c => {
-      const parts = c.date.split('-'); 
-      let year: number, month: number;
-
-      if (parts.length === 3) {
-        year = parseInt(parts[0]);
-        month = parseInt(parts[1]) - 1;
-      } else {
-        const d = new Date(c.date);
-        if (isNaN(d.getTime())) return;
-        year = d.getFullYear();
-        month = d.getMonth();
-      }
-
-      const periodKey = `${monthNames[month]} ${year}`;
-      const sortKey = year * 100 + month;
-
-      if (!groups.has(periodKey)) {
-        groups.set(periodKey, { 
-          period: periodKey, 
-          sortKey, 
-          cashTotal: 0, 
-          digitalTotal: 0, 
-          pendingAmount: 0, 
-          totalCases: 0, 
-          totalAmount: 0 
-        });
-      }
-      
-      const g = groups.get(periodKey)!;
-      const status = (c.paymentStatus || '').toUpperCase();
-      const mode = (c.paymentMode || '').toLowerCase();
-      const amount = c.amount || 0;
-
-      if (status === 'SUCCESS') {
-        g.totalCases += 1;
-        g.totalAmount += amount;
-        if (mode === 'cash') {
-          g.cashTotal += amount;
-        } else if (mode === 'bank transfer' || mode === 'upi') {
-          g.digitalTotal += amount;
-        }
-      } else if (status === 'PENDING') {
-        g.pendingAmount += amount;
-      }
-      // CANCELLED and REFUNDED are naturally ignored
-    });
-
-    return Array.from(groups.values()).sort((a, b) => b.sortKey - a.sortKey);
-  });
-
-  annualSummary = computed<SummaryGroup[]>(() => {
-    const cases = this._cases();
-    const groups = new Map<string, SummaryGroup>();
-
-    cases.forEach(c => {
-      const parts = c.date.split('-');
-      let year: number;
-      if (parts.length === 3) {
-        year = parseInt(parts[0]);
-      } else {
-        const d = new Date(c.date);
-        if (isNaN(d.getTime())) return;
-        year = d.getFullYear();
-      }
-
-      const periodKey = `${year}`;
-      if (!groups.has(periodKey)) {
-        groups.set(periodKey, { 
-          period: periodKey, 
-          sortKey: year, 
-          cashTotal: 0, 
-          digitalTotal: 0, 
-          pendingAmount: 0, 
-          totalCases: 0, 
-          totalAmount: 0 
-        });
-      }
-      
-      const g = groups.get(periodKey)!;
-      const status = (c.paymentStatus || '').toUpperCase();
-      const mode = (c.paymentMode || '').toLowerCase();
-      const amount = c.amount || 0;
-
-      if (status === 'SUCCESS') {
-        g.totalCases += 1;
-        g.totalAmount += amount;
-        if (mode === 'cash') {
-          g.cashTotal += amount;
-        } else if (mode === 'bank transfer' || mode === 'upi') {
-          g.digitalTotal += amount;
-        }
-      } else if (status === 'PENDING') {
-        g.pendingAmount += amount;
-      }
-    });
-
-    return Array.from(groups.values()).sort((a, b) => b.sortKey - a.sortKey);
-  });
 }
