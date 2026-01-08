@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from './auth.service';
@@ -26,10 +26,19 @@ export interface CaseEntry {
   remarks?: string;
 }
 
+interface SummaryGroup {
+  period: string;
+  sortKey: number;
+  cashTotal: number;
+  digitalTotal: number;
+  totalCases: number;
+  totalAmount: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CaseService {
-  private http = inject(HttpClient);
-  private auth = inject(AuthService);
+  private readonly http: HttpClient = inject(HttpClient);
+  private readonly auth: AuthService = inject(AuthService);
   private readonly apiUrl = '/api/cases';
   
   private _cases = signal<CaseEntry[]>([]);
@@ -39,8 +48,13 @@ export class CaseService {
   isLoading = this._loading.asReadonly();
 
   constructor() {
-    // Refresh cases whenever user changes
-    this.refreshCases();
+    effect(() => {
+      if (this.auth.isAuthenticated()) {
+        this.refreshCases();
+      } else {
+        this._cases.set([]);
+      }
+    });
   }
 
   private getHeaders(): HttpHeaders {
@@ -49,10 +63,7 @@ export class CaseService {
   }
 
   async refreshCases() {
-    if (!this.auth.isAuthenticated()) {
-      this._cases.set([]);
-      return;
-    }
+    if (!this.auth.isAuthenticated()) return;
 
     this._loading.set(true);
     try {
@@ -80,7 +91,6 @@ export class CaseService {
       }
     } catch (error) {
       console.error('Failed to add case:', error);
-      alert('Error saving case. Please check your connection.');
     } finally {
       this._loading.set(false);
     }
@@ -152,44 +162,80 @@ export class CaseService {
     return Object.entries(stats).map(([name, value]) => ({ name, value }));
   });
 
-  monthlySummary = computed(() => {
-    const groups: Record<string, any> = {};
+  monthlySummary = computed<SummaryGroup[]>(() => {
+    const cases = this._cases();
+    const groups = new Map<string, SummaryGroup>();
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    this._cases().forEach(c => {
-      const d = new Date(c.date);
-      if (isNaN(d.getTime())) return;
-      const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-      if (!groups[key]) {
-        groups[key] = { period: key, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 };
+    
+    cases.forEach(c => {
+      // Robust split-based parsing to avoid browser-specific Date issues
+      const parts = c.date.split('-'); 
+      let year: number, month: number;
+
+      if (parts.length === 3) {
+        year = parseInt(parts[0]);
+        month = parseInt(parts[1]) - 1;
+      } else {
+        const d = new Date(c.date);
+        if (isNaN(d.getTime())) return;
+        year = d.getFullYear();
+        month = d.getMonth();
       }
-      groups[key].totalCases += 1;
-      groups[key].totalAmount += (c.amount || 0);
-      if (c.paymentMode === 'Cash') {
-        groups[key].cashTotal += (c.amount || 0);
-      } else if (['Bank Transfer', 'UPI'].includes(c.paymentMode)) {
-        groups[key].digitalTotal += (c.amount || 0);
+
+      const periodKey = `${monthNames[month]} ${year}`;
+      const sortKey = year * 100 + month;
+
+      if (!groups.has(periodKey)) {
+        groups.set(periodKey, { period: periodKey, sortKey, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 });
+      }
+      
+      const g = groups.get(periodKey)!;
+      g.totalCases += 1;
+      g.totalAmount += (c.amount || 0);
+      
+      const mode = (c.paymentMode || '').toLowerCase();
+      if (mode === 'cash') {
+        g.cashTotal += (c.amount || 0);
+      } else if (mode === 'bank transfer' || mode === 'upi') {
+        g.digitalTotal += (c.amount || 0);
       }
     });
-    return Object.values(groups).sort((a: any, b: any) => new Date(b.period).getTime() - new Date(a.period).getTime());
+
+    return Array.from(groups.values()).sort((a, b) => b.sortKey - a.sortKey);
   });
 
-  annualSummary = computed(() => {
-    const groups: Record<string, any> = {};
-    this._cases().forEach(c => {
-      const d = new Date(c.date);
-      if (isNaN(d.getTime())) return;
-      const key = `${d.getFullYear()}`;
-      if (!groups[key]) {
-        groups[key] = { period: key, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 };
+  annualSummary = computed<SummaryGroup[]>(() => {
+    const cases = this._cases();
+    const groups = new Map<string, SummaryGroup>();
+
+    cases.forEach(c => {
+      const parts = c.date.split('-');
+      let year: number;
+      if (parts.length === 3) {
+        year = parseInt(parts[0]);
+      } else {
+        const d = new Date(c.date);
+        if (isNaN(d.getTime())) return;
+        year = d.getFullYear();
       }
-      groups[key].totalCases += 1;
-      groups[key].totalAmount += (c.amount || 0);
-      if (c.paymentMode === 'Cash') {
-        groups[key].cashTotal += (c.amount || 0);
-      } else if (['Bank Transfer', 'UPI'].includes(c.paymentMode)) {
-        groups[key].digitalTotal += (c.amount || 0);
+
+      const periodKey = `${year}`;
+      if (!groups.has(periodKey)) {
+        groups.set(periodKey, { period: periodKey, sortKey: year, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 });
+      }
+      
+      const g = groups.get(periodKey)!;
+      g.totalCases += 1;
+      g.totalAmount += (c.amount || 0);
+      
+      const mode = (c.paymentMode || '').toLowerCase();
+      if (mode === 'cash') {
+        g.cashTotal += (c.amount || 0);
+      } else if (mode === 'bank transfer' || mode === 'upi') {
+        g.digitalTotal += (c.amount || 0);
       }
     });
-    return Object.values(groups).sort((a: any, b: any) => b.period.localeCompare(a.period));
+
+    return Array.from(groups.values()).sort((a, b) => b.sortKey - a.sortKey);
   });
 }
