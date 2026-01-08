@@ -1,6 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { AuthService } from './auth.service';
 
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'CANCELLED' | 'REFUNDED';
 
@@ -28,6 +29,7 @@ export interface CaseEntry {
 @Injectable({ providedIn: 'root' })
 export class CaseService {
   private http = inject(HttpClient);
+  private auth = inject(AuthService);
   private readonly apiUrl = '/api/cases';
   
   private _cases = signal<CaseEntry[]>([]);
@@ -37,13 +39,26 @@ export class CaseService {
   isLoading = this._loading.asReadonly();
 
   constructor() {
+    // Refresh cases whenever user changes
     this.refreshCases();
   }
 
+  private getHeaders(): HttpHeaders {
+    const userId = this.auth.getUserId() || '';
+    return new HttpHeaders().set('x-user-id', userId);
+  }
+
   async refreshCases() {
+    if (!this.auth.isAuthenticated()) {
+      this._cases.set([]);
+      return;
+    }
+
     this._loading.set(true);
     try {
-      const data = await firstValueFrom(this.http.get<any[]>(this.apiUrl));
+      const data = await firstValueFrom(
+        this.http.get<any[]>(this.apiUrl, { headers: this.getHeaders() })
+      );
       const mapped: CaseEntry[] = (data || []).map(db => this.mapFromDb(db));
       this._cases.set(mapped);
     } catch (error) {
@@ -56,14 +71,16 @@ export class CaseService {
   async addCase(entry: Omit<CaseEntry, 'id' | 'serialNumber'>) {
     this._loading.set(true);
     try {
-      const response = await firstValueFrom(this.http.post<any>(this.apiUrl, entry));
+      const response = await firstValueFrom(
+        this.http.post<any>(this.apiUrl, entry, { headers: this.getHeaders() })
+      );
       if (response) {
         const newCase = this.mapFromDb(response);
         this._cases.update(prev => [newCase, ...prev]);
       }
     } catch (error) {
       console.error('Failed to add case:', error);
-      alert('Error saving case. Please check your network or DB settings.');
+      alert('Error saving case. Please check your connection.');
     } finally {
       this._loading.set(false);
     }
@@ -73,7 +90,7 @@ export class CaseService {
     this._loading.set(true);
     try {
       const response = await firstValueFrom(
-        this.http.patch<any>(`${this.apiUrl}?id=${updated.id}`, updated)
+        this.http.patch<any>(`${this.apiUrl}?id=${updated.id}`, updated, { headers: this.getHeaders() })
       );
       if (response) {
         const refreshed = this.mapFromDb(response);
@@ -89,7 +106,9 @@ export class CaseService {
   async deleteCase(id: string) {
     this._loading.set(true);
     try {
-      await firstValueFrom(this.http.delete(`${this.apiUrl}?id=${id}`));
+      await firstValueFrom(
+        this.http.delete(`${this.apiUrl}?id=${id}`, { headers: this.getHeaders() })
+      );
       this._cases.update(prev => prev.filter(c => c.id !== id));
     } catch (error) {
       console.error('Failed to delete case:', error);
@@ -102,7 +121,7 @@ export class CaseService {
     return {
       id: db.id,
       serialNumber: db.serial_number,
-      date: db.date, // Backend now returns date as 'YYYY-MM-DD' text string
+      date: db.date,
       hospital: db.hospital,
       patientName: db.patient_name,
       age: db.age,
@@ -138,6 +157,7 @@ export class CaseService {
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     this._cases().forEach(c => {
       const d = new Date(c.date);
+      if (isNaN(d.getTime())) return;
       const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
       if (!groups[key]) {
         groups[key] = { period: key, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 };
@@ -157,6 +177,7 @@ export class CaseService {
     const groups: Record<string, any> = {};
     this._cases().forEach(c => {
       const d = new Date(c.date);
+      if (isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}`;
       if (!groups[key]) {
         groups[key] = { period: key, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 };

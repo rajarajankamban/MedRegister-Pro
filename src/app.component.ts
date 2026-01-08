@@ -1,6 +1,7 @@
 import { Component, inject, signal, computed, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CaseService, CaseEntry } from './services/case.service';
+import { AuthService } from './services/auth.service';
 import { DashboardComponent } from './components/dashboard.component';
 import { CaseFormComponent } from './components/case-form.component';
 import { ReportsComponent } from './components/reports.component';
@@ -14,6 +15,8 @@ import { ReportsComponent } from './components/reports.component';
 })
 export class AppComponent {
   caseService = inject(CaseService);
+  auth = inject(AuthService);
+  
   activeTab = signal<'register' | 'dashboard' | 'reports'>('register');
   showForm = signal(false);
   editingCase = signal<CaseEntry | null>(null);
@@ -32,6 +35,18 @@ export class AppComponent {
       return matchesSearch && matchesStatus;
     });
   });
+
+  async login() {
+    try {
+      await this.auth.signInWithGoogle();
+    } catch (e) {
+      alert('Login failed. Please try again.');
+    }
+  }
+
+  async logout() {
+    await this.auth.signOut();
+  }
 
   openAddForm() {
     this.editingCase.set(null);
