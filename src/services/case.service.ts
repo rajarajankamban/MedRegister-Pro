@@ -26,11 +26,12 @@ export interface CaseEntry {
   remarks?: string;
 }
 
-interface SummaryGroup {
+export interface SummaryGroup {
   period: string;
   sortKey: number;
   cashTotal: number;
   digitalTotal: number;
+  pendingAmount: number;
   totalCases: number;
   totalAmount: number;
 }
@@ -168,7 +169,6 @@ export class CaseService {
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     
     cases.forEach(c => {
-      // Robust split-based parsing to avoid browser-specific Date issues
       const parts = c.date.split('-'); 
       let year: number, month: number;
 
@@ -186,18 +186,32 @@ export class CaseService {
       const sortKey = year * 100 + month;
 
       if (!groups.has(periodKey)) {
-        groups.set(periodKey, { period: periodKey, sortKey, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 });
+        groups.set(periodKey, { 
+          period: periodKey, 
+          sortKey, 
+          cashTotal: 0, 
+          digitalTotal: 0, 
+          pendingAmount: 0, 
+          totalCases: 0, 
+          totalAmount: 0 
+        });
       }
       
       const g = groups.get(periodKey)!;
-      g.totalCases += 1;
-      g.totalAmount += (c.amount || 0);
-      
+      const status = (c.paymentStatus || '').toUpperCase();
       const mode = (c.paymentMode || '').toLowerCase();
-      if (mode === 'cash') {
-        g.cashTotal += (c.amount || 0);
-      } else if (mode === 'bank transfer' || mode === 'upi') {
-        g.digitalTotal += (c.amount || 0);
+      const amount = c.amount || 0;
+
+      if (status === 'SUCCESS') {
+        g.totalCases += 1;
+        g.totalAmount += amount;
+        if (mode === 'cash') {
+          g.cashTotal += amount;
+        } else if (mode === 'bank transfer' || mode === 'upi') {
+          g.digitalTotal += amount;
+        }
+      } else if (status === 'PENDING') {
+        g.pendingAmount += amount;
       }
     });
 
@@ -221,18 +235,32 @@ export class CaseService {
 
       const periodKey = `${year}`;
       if (!groups.has(periodKey)) {
-        groups.set(periodKey, { period: periodKey, sortKey: year, cashTotal: 0, digitalTotal: 0, totalCases: 0, totalAmount: 0 });
+        groups.set(periodKey, { 
+          period: periodKey, 
+          sortKey: year, 
+          cashTotal: 0, 
+          digitalTotal: 0, 
+          pendingAmount: 0, 
+          totalCases: 0, 
+          totalAmount: 0 
+        });
       }
       
       const g = groups.get(periodKey)!;
-      g.totalCases += 1;
-      g.totalAmount += (c.amount || 0);
-      
+      const status = (c.paymentStatus || '').toUpperCase();
       const mode = (c.paymentMode || '').toLowerCase();
-      if (mode === 'cash') {
-        g.cashTotal += (c.amount || 0);
-      } else if (mode === 'bank transfer' || mode === 'upi') {
-        g.digitalTotal += (c.amount || 0);
+      const amount = c.amount || 0;
+
+      if (status === 'SUCCESS') {
+        g.totalCases += 1;
+        g.totalAmount += amount;
+        if (mode === 'cash') {
+          g.cashTotal += amount;
+        } else if (mode === 'bank transfer' || mode === 'upi') {
+          g.digitalTotal += amount;
+        }
+      } else if (status === 'PENDING') {
+        g.pendingAmount += amount;
       }
     });
 

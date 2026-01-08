@@ -1,6 +1,6 @@
 import { Component, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { CaseService } from '../services/case.service';
+import { CaseService, SummaryGroup } from '../services/case.service';
 
 @Component({
   selector: 'app-reports',
@@ -36,8 +36,8 @@ import { CaseService } from '../services/case.service';
             title="Refresh Data">
             <svg class="w-5 h-5" [class.animate-spin]="caseService.isLoading()" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
           </button>
-          <div class="bg-blue-50 border border-blue-100 px-4 py-2 rounded-xl flex-1 md:flex-none">
-            <p class="text-[10px] uppercase tracking-wider text-blue-500 font-bold">Total Confirmed revenue</p>
+          <div class="bg-blue-50 border border-blue-100 px-4 py-2 rounded-xl flex-1 md:flex-none text-right">
+            <p class="text-[10px] uppercase tracking-wider text-blue-500 font-bold">Total Confirmed Revenue</p>
             <p class="text-lg font-black text-blue-700">₹{{ totalPeriodAmount() | number }}</p>
           </div>
         </div>
@@ -114,9 +114,14 @@ import { CaseService } from '../services/case.service';
 
       <div class="p-4 bg-amber-50 rounded-xl border border-amber-100 flex gap-3 items-center">
         <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-        <p class="text-[11px] text-amber-700 font-medium">
-          Financial reporting policy: Only cases with status <span class="font-bold">SUCCESS</span> are included in confirmed totals. <span class="font-bold">PENDING</span> amounts are tracked separately. <span class="font-bold">CANCELLED</span> and <span class="font-bold">REFUNDED</span> cases are excluded from all financial summaries.
-        </p>
+        <div class="text-[11px] text-amber-700 font-medium">
+          <p class="font-black uppercase tracking-widest mb-1 text-[9px]">Financial Reporting Logic</p>
+          <ul class="list-disc ml-4 space-y-0.5">
+            <li>Only cases with status <span class="font-bold">SUCCESS</span> are included in Confirmed totals and Case counts.</li>
+            <li><span class="font-bold text-amber-600">PENDING</span> amounts represent potential receivables and are tracked separately.</li>
+            <li><span class="font-bold">CANCELLED</span> and <span class="font-bold">REFUNDED</span> cases are excluded from all totals in this view.</li>
+          </ul>
+        </div>
       </div>
     </div>
   `
@@ -125,7 +130,7 @@ export class ReportsComponent {
   caseService = inject(CaseService);
   reportType = signal<'monthly' | 'annual'>('monthly');
 
-  activeSummary = computed(() => 
+  activeSummary = computed<SummaryGroup[]>(() => 
     this.reportType() === 'monthly' ? (this.caseService.monthlySummary() || []) : (this.caseService.annualSummary() || [])
   );
 
