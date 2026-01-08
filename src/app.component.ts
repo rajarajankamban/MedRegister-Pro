@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, signal, computed, ChangeDetectionStrategy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CaseService, CaseEntry } from './services/case.service';
 import { AuthService } from './services/auth.service';
@@ -13,7 +13,7 @@ import { ReportsComponent } from './components/reports.component';
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
   caseService = inject(CaseService);
   auth = inject(AuthService);
   
@@ -22,6 +22,39 @@ export class AppComponent {
   editingCase = signal<CaseEntry | null>(null);
   searchQuery = signal('');
   statusFilter = signal<string>('ALL');
+
+  // PWA Install Prompt state
+  private deferredPrompt = signal<any>(null);
+  canInstall = computed(() => !!this.deferredPrompt());
+
+  ngOnInit() {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      this.deferredPrompt.set(e);
+    });
+
+    window.addEventListener('appinstalled', () => {
+      console.log('PWA was installed');
+      this.deferredPrompt.set(null);
+    });
+  }
+
+  async installPWA() {
+    const promptEvent = this.deferredPrompt();
+    if (!promptEvent) return;
+
+    // Show the install prompt
+    promptEvent.prompt();
+    
+    // Wait for the user to respond to the prompt
+    const { outcome } = await promptEvent.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    
+    // We've used the prompt, and can't use it again, throw it away
+    this.deferredPrompt.set(null);
+  }
 
   filteredCases = computed(() => {
     const q = this.searchQuery().toLowerCase();
