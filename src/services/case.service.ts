@@ -31,6 +31,7 @@ export interface SummaryGroup {
   sortKey: number;
   cashTotal: number;
   digitalTotal: number;
+  creditTotal: number;
   pendingAmount: number;
   totalCases: number;
   totalAmount: number;
@@ -191,6 +192,7 @@ export class CaseService {
           sortKey, 
           cashTotal: 0, 
           digitalTotal: 0, 
+          creditTotal: 0,
           pendingAmount: 0, 
           totalCases: 0, 
           totalAmount: 0 
@@ -209,6 +211,8 @@ export class CaseService {
           g.cashTotal += amount;
         } else if (mode === 'bank transfer' || mode === 'upi') {
           g.digitalTotal += amount;
+        } else if (mode === 'credit') {
+          g.creditTotal += amount;
         }
       } else if (status === 'PENDING') {
         g.pendingAmount += amount;
@@ -240,6 +244,7 @@ export class CaseService {
           sortKey: year, 
           cashTotal: 0, 
           digitalTotal: 0, 
+          creditTotal: 0,
           pendingAmount: 0, 
           totalCases: 0, 
           totalAmount: 0 
@@ -258,6 +263,8 @@ export class CaseService {
           g.cashTotal += amount;
         } else if (mode === 'bank transfer' || mode === 'upi') {
           g.digitalTotal += amount;
+        } else if (mode === 'credit') {
+          g.creditTotal += amount;
         }
       } else if (status === 'PENDING') {
         g.pendingAmount += amount;

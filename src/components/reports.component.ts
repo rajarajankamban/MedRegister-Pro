@@ -54,6 +54,7 @@ import { CaseService, SummaryGroup } from '../services/case.service';
                 </th>
                 <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Cash (₹)</th>
                 <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Bank/UPI (₹)</th>
+                <th class="px-6 py-4 text-xs font-bold text-indigo-600 uppercase tracking-wider text-right">Credit (₹)</th>
                 <th class="px-6 py-4 text-xs font-bold text-amber-600 uppercase tracking-wider text-right">Pending (₹)</th>
                 <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Cases</th>
                 <th class="px-6 py-4 text-xs font-bold text-slate-900 uppercase tracking-wider text-right">Confirmed (₹)</th>
@@ -72,6 +73,9 @@ import { CaseService, SummaryGroup } from '../services/case.service';
                     <div class="text-sm font-medium text-blue-600">₹{{ row.digitalTotal | number }}</div>
                   </td>
                   <td class="px-6 py-5 text-right">
+                    <div class="text-sm font-medium text-indigo-600">₹{{ row.creditTotal | number }}</div>
+                  </td>
+                  <td class="px-6 py-5 text-right">
                     <div class="text-sm font-bold text-amber-600">₹{{ row.pendingAmount | number }}</div>
                   </td>
                   <td class="px-6 py-5 text-center">
@@ -85,7 +89,7 @@ import { CaseService, SummaryGroup } from '../services/case.service';
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="px-6 py-24 text-center">
+                  <td colspan="7" class="px-6 py-24 text-center">
                     <div class="flex flex-col items-center gap-3 max-w-xs mx-auto">
                       <div class="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-300">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
@@ -102,6 +106,7 @@ import { CaseService, SummaryGroup } from '../services/case.service';
                   <td class="px-6 py-4 text-xs text-slate-900 font-black uppercase tracking-wider">Grand Total</td>
                   <td class="px-6 py-4 text-sm text-emerald-600 text-right">₹{{ grandTotals().cash | number }}</td>
                   <td class="px-6 py-4 text-sm text-blue-600 text-right">₹{{ grandTotals().digital | number }}</td>
+                  <td class="px-6 py-4 text-sm text-indigo-600 text-right">₹{{ grandTotals().credit | number }}</td>
                   <td class="px-6 py-4 text-sm text-amber-600 text-right">₹{{ grandTotals().pending | number }}</td>
                   <td class="px-6 py-4 text-sm text-slate-900 text-center">{{ grandTotals().cases }}</td>
                   <td class="px-6 py-4 text-sm text-slate-900 font-black text-right">₹{{ totalPeriodAmount() | number }}</td>
@@ -118,7 +123,8 @@ import { CaseService, SummaryGroup } from '../services/case.service';
           <p class="font-black uppercase tracking-widest mb-1 text-[9px]">Financial Reporting Logic</p>
           <ul class="list-disc ml-4 space-y-0.5">
             <li>Only cases with status <span class="font-bold">SUCCESS</span> are included in Confirmed totals and Case counts.</li>
-            <li><span class="font-bold text-amber-600">PENDING</span> amounts represent potential receivables and are tracked separately.</li>
+            <li><span class="font-bold text-indigo-600">CREDIT</span> entries are successful procedures billed on credit mode.</li>
+            <li><span class="font-bold text-amber-600">PENDING</span> amounts represent potential receivables from cases marked as PENDING status.</li>
             <li><span class="font-bold">CANCELLED</span> and <span class="font-bold">REFUNDED</span> cases are excluded from all totals in this view.</li>
           </ul>
         </div>
@@ -143,6 +149,7 @@ export class ReportsComponent {
     return {
       cash: summary.reduce((acc, curr) => acc + (curr.cashTotal || 0), 0),
       digital: summary.reduce((acc, curr) => acc + (curr.digitalTotal || 0), 0),
+      credit: summary.reduce((acc, curr) => acc + (curr.creditTotal || 0), 0),
       pending: summary.reduce((acc, curr) => acc + (curr.pendingAmount || 0), 0),
       cases: summary.reduce((acc, curr) => acc + (curr.totalCases || 0), 0)
     };
